@@ -1,7 +1,9 @@
 import fs from 'node:fs'
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron/simple'
+import vueDevTools from 'vite-plugin-vue-devtools'
 import pkg from './package.json'
 
 // https://vitejs.dev/config/
@@ -13,6 +15,9 @@ export default defineConfig(({ command }) => {
   const sourcemap = isServe || !!process.env.VSCODE_DEBUG
 
   return {
+    optimizeDeps: {
+      include: ['jspdf']
+    },
     plugins: [
       vue(),
       electron({
@@ -61,7 +66,18 @@ export default defineConfig(({ command }) => {
         // See 👉 https://github.com/electron-vite/vite-plugin-electron-renderer
         renderer: {},
       }),
+      vueDevTools()
     ],
+    css: {
+      preprocessorOptions: {
+        scss: { api: 'modern-compiler' }
+      }
+    },
+    resolve: {
+      alias: {
+        '@': fileURLToPath(new URL('./src', import.meta.url))
+      }
+    },
     server: process.env.VSCODE_DEBUG && (() => {
       const url = new URL(pkg.debug.env.VITE_DEV_SERVER_URL)
       return {

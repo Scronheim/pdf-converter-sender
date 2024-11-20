@@ -1,11 +1,20 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
+import Store from 'electron-store'
+import nodemailer from 'nodemailer'
+
+import { windowStateKeeper } from './windowStateKeeper'
+
+import type { FileListItem } from '../../types'
 
 const require = createRequire(import.meta.url)
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const store = new Store()
+let mailTransporter = null
 
 // The built directory structure
 //
@@ -43,19 +52,26 @@ const preload = path.join(__dirname, '../preload/index.mjs')
 const indexHtml = path.join(RENDERER_DIST, 'index.html')
 
 async function createWindow() {
+  const mainWindowStateKeeper = await windowStateKeeper('main')
   win = new BrowserWindow({
     title: 'Main window',
     icon: path.join(process.env.VITE_PUBLIC, 'favicon.ico'),
+    x: mainWindowStateKeeper.x,
+    y: mainWindowStateKeeper.y,
+    width: mainWindowStateKeeper.width,
+    height: mainWindowStateKeeper.height,
     webPreferences: {
       preload,
       // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
-      // nodeIntegration: true,
+      nodeIntegration: true,
 
       // Consider using contextBridge.exposeInMainWorld
       // Read more on https://www.electronjs.org/docs/latest/tutorial/context-isolation
-      // contextIsolation: false,
+      // contextIsolation: true,
     },
   })
+
+  mainWindowStateKeeper.track(win)
 
   if (VITE_DEV_SERVER_URL) { // #298
     win.loadURL(VITE_DEV_SERVER_URL)
@@ -117,4 +133,91 @@ ipcMain.handle('open-win', (_, arg) => {
   } else {
     childWindow.loadFile(indexHtml, { hash: arg })
   }
+})
+
+ipcMain.handle('selectPdfFolder', () => {
+  return dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+    .then((result) => {
+      // Bail early if user cancels dialog
+      if (result.canceled) return false
+      else return result.filePaths[0]
+    })
+})
+
+ipcMain.handle('saveUserSettings', (_, user) => {
+  store.set('userSettings', user)
+})
+
+ipcMain.handle('getUserSettings', () => {
+  return JSON.parse(store.get('userSettings'))
+})
+
+ipcMain.handle('getPdfFileList', async (): Promise<FileListItem[]> => {
+  const { selectedPdfFolderPath } = JSON.parse(store.get('userSettings'))
+  return new Promise((resolve) => {
+    fs.readdir(selectedPdfFolderPath, (_, files) => {
+      resolve(files.filter(file => file.endsWith('.pdf')).map((filename) => {
+        return {
+          name: filename,
+          email: filename.replace('.pdf', '')
+        }
+      }))
+    })
+  })
+})
+
+ipcMain.handle('downloadFile', async (_, arrayBuffer, filename) => {
+  saveArrayBufferToFile(arrayBuffer, filename)
+})
+
+function saveArrayBufferToFile(arrayBuffer: ArrayBuffer, filename: string, encoding = 'utf8') {
+  return new Promise((resolve, reject) => {
+    const buffer = Buffer.from(arrayBuffer)
+    const { selectedPdfFolderPath } = JSON.parse(store.get('userSettings'))
+
+    const fullPath = path.join(selectedPdfFolderPath, filename)
+    fs.writeFile(fullPath, buffer, { encoding }, (err) => {
+      if (err) {
+        reject(err)
+      } else {
+        resolve(true)
+      }
+    })
+  })
+}
+
+ipcMain.handle('createMailTransport', () => {
+  const { smtpHost, smtpLogin, smtpPassword } = JSON.parse(store.get('userSettings'))
+  mailTransporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: 465,
+    secure: true,
+    auth: {
+      user: smtpLogin,
+      pass: smtpPassword,
+    },
+  })
+})
+
+ipcMain.handle('sendMail', (_, to, subject, filePath) => {
+  const { smtpLogin } = JSON.parse(store.get('userSettings'))
+  mailTransporter.sendMail({
+    from: smtpLogin,
+    to,
+    subject,
+    attachments: [
+      { filename: `${to}.pdf`, path: filePath }
+    ]
+  })
+  // fs.unlink(filePath, (err) => {
+  //   if (err) console.log(1, err)
+    
+  // })
+})
+
+ipcMain.handle('removeFile', (_, filePath) => {
+  fs.unlink(filePath, (err) => {
+    if (err) console.log(err)
+    
+  })
 })
