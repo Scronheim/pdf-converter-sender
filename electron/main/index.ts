@@ -70,7 +70,7 @@ async function createWindow() {
       // contextIsolation: true,
     },
   })
-
+  win.setMenu(null)
   mainWindowStateKeeper.track(win)
 
   if (VITE_DEV_SERVER_URL) { // #298
@@ -149,21 +149,32 @@ ipcMain.handle('saveUserSettings', (_, user) => {
 })
 
 ipcMain.handle('getUserSettings', () => {
-  return JSON.parse(store.get('userSettings'))
+  const settings = store.get('userSettings')
+  if (settings) return JSON.parse(settings)
+  return {
+    selectedPdfFolderPath: '',
+    smtpHost: '',
+    smtpLogin: '',
+    smtpPassword: '',
+  }
 })
 
 ipcMain.handle('getPdfFileList', async (): Promise<FileListItem[]> => {
-  const { selectedPdfFolderPath } = JSON.parse(store.get('userSettings'))
-  return new Promise((resolve) => {
-    fs.readdir(selectedPdfFolderPath, (_, files) => {
-      resolve(files.filter(file => file.endsWith('.pdf')).map((filename) => {
-        return {
-          name: filename,
-          email: filename.replace('.pdf', '')
-        }
-      }))
+  let settings = store.get('userSettings')
+  if (settings) {
+    settings = JSON.parse(settings)
+    return new Promise((resolve) => {
+      fs.readdir(settings.selectedPdfFolderPath, (_, files) => {
+        resolve(files.filter(file => file.endsWith('.pdf')).map((filename) => {
+          return {
+            name: filename,
+            email: filename.replace('.pdf', '')
+          }
+        }))
+      })
     })
-  })
+  }
+  return []
 })
 
 ipcMain.handle('downloadFile', async (_, arrayBuffer, filename) => {

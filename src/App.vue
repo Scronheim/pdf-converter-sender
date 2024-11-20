@@ -79,7 +79,7 @@ const generatePdf = async (): Promise<void> => {
     apartmentLocal.value = apartment
     payerCodeLocal.value = payerCode
     akvilaEmailLocal.value = akvilaEmail
-    debtLocal.value = debt
+    debtLocal.value = parseFloat(debt)
     dateLocal.value = date
     districtLocal.value = district
     emailLocal.value = email
@@ -114,8 +114,8 @@ const loadUserSettings = async (): Promise<void> => {
 }
 
 const saveUserSettings = async (): Promise<void> => {
-  await window.ipcRenderer.invoke('createMailTransport')
   await window.ipcRenderer.invoke('saveUserSettings', JSON.stringify(user.value))
+  await window.ipcRenderer.invoke('createMailTransport')
   ElNotification({
     type: 'success',
     message: 'Настройки сохранены'
@@ -156,7 +156,7 @@ const removeFile = async (row) => {
 
 onMounted(async () => {
   await loadUserSettings()
-  await window.ipcRenderer.invoke('createMailTransport')
+  if (user.value.smtpHost) await window.ipcRenderer.invoke('createMailTransport')
   await getFileList()
 })
 </script>
@@ -204,11 +204,13 @@ onMounted(async () => {
         <el-button :icon="Message" @click="sendMail(row)">
           Отправить
         </el-button>
-        <el-button
-          type="danger"
-          :icon="Delete"
-          @click="removeFile(row)"
-        />
+        <el-tooltip content="Удалить файл">
+          <el-button
+            type="danger"
+            :icon="Delete"
+            @click="removeFile(row)"
+          />
+        </el-tooltip>
       </template>
     </el-table-column>
   </el-table>
