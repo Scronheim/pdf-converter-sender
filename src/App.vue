@@ -38,7 +38,8 @@ const settingsDialog = ref<boolean>(false)
 const pdfTable = ref<TableInstance>()
 
 const handleFile = (event): void => {
-  const file = event.raw  //Получаем выбранный файл
+  const file = event.target.files[0]
+  
   if (file) {
     const reader = new FileReader()  //Создаем новый FileReader
     reader.onload = async (e: ProgressEvent) => {
@@ -99,6 +100,7 @@ const generatePdf = async (): Promise<void> => {
         type: 'success',
         message: 'Файлы PDF сгенерированы'
       })
+      fileList.value = []
     }
   }
 }
@@ -154,6 +156,11 @@ const removeFile = async (row) => {
   await getFileList()
 }
 
+const openExcelFileDialog = () => {
+  const input = document.getElementById('excelFile')
+  input?.click()
+}
+
 onMounted(async () => {
   await loadUserSettings()
   if (user.value.smtpHost) await window.ipcRenderer.invoke('createMailTransport')
@@ -163,28 +170,28 @@ onMounted(async () => {
 
 <template>
   <div class="flex gap-3">
-    <el-upload
-      :limit="1"
-      :show-file-list="false"
-      :auto-upload="false"
-      accept=".xls,.xlsx"
-      v-model:file-list="data"
-      @change="handleFile"
-    >
-      <el-button type="primary">
-        Выберите Excel файл
+    <div style="display: none;">
+      <input
+        type="file"
+        accept=".xlsx, .xls"
+        id="excelFile"
+        @change="handleFile"
+      >
+    </div>
+    <el-button type="primary" @click="openExcelFileDialog">
+      Выберите Excel файл
+    </el-button>
+    <div class="grow">
+      <el-button
+        v-if="fileList.length > 0"
+        type="success"
+        @click="sendAllSelectedMail"
+      >
+        Отправить выбранные
       </el-button>
-    </el-upload>
+    </div>
     <el-button :icon="Setting" @click="settingsDialog = true" />
   </div>
-
-  <el-button
-    v-if="fileList.length > 0"
-    type="success"
-    @click="sendAllSelectedMail"
-  >
-    Отправить выбранные
-  </el-button>
   <el-table
     ref="pdfTable"
     :data="fileList"
