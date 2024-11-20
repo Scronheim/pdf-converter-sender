@@ -79,7 +79,7 @@ const generatePdf = async (): Promise<void> => {
     apartmentLocal.value = apartment
     payerCodeLocal.value = payerCode
     akvilaEmailLocal.value = akvilaEmail
-    debtLocal.value = parseFloat(debt)
+    debtLocal.value = typeof debt === 'string' ? parseFloat(debt.replace(',', '.')) : parseFloat(debt)
     dateLocal.value = date
     districtLocal.value = district
     emailLocal.value = email
