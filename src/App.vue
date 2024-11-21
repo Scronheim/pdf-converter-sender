@@ -6,6 +6,8 @@ import { ElNotification } from 'element-plus'
 import { useColorMode } from '@vueuse/core'
 import { Setting, Folder, Message, Delete, QuestionFilled } from '@element-plus/icons-vue'
 
+import HTMLEditor from './components/HTMLEditor.vue'
+
 import type { TableInstance } from 'element-plus'
 import type { FileListItem } from '../types'
 
@@ -25,7 +27,14 @@ const toggleTheme = (themeName: string): void => {
 
 const data = ref<(string | number)[]>([])  //Реактивная переменная для хранения данных из Excel
 const fileList = ref<FileListItem[]>([])
+const mailServers = [
+  { title: 'Mail.ru', value: 'smtp.mail.ru' },
+  { title: 'Yandex', value: 'smtp.yandex.ru' }
+]
+const pdfTable = ref<TableInstance>()
 const generatingIsProgress = ref<boolean>(false)
+const settingsDialog = ref<boolean>(false)
+const htmlEditorDialog = ref<boolean>(false)
 
 const streetLocal = ref('')
 const apartmentLocal = ref('')
@@ -46,14 +55,8 @@ const user = ref({
   theme: 'light',
   mailSubject: '',
   mailBody: '',
+  htmlTemplate: '',
 })
-
-const mailServers = [
-  { title: 'Mail.ru', value: 'smtp.mail.ru' },
-  { title: 'Yandex', value: 'smtp.yandex.ru' }
-]
-const settingsDialog = ref<boolean>(false)
-const pdfTable = ref<TableInstance>()
 
 const handleFile = (event): void => {
   generatingIsProgress.value = true
@@ -209,6 +212,10 @@ const openExternalPasswordPage = () => {
   window.open(externalUrl, '_blank')
 }
 
+const openHTMLEditorDialog = () => {
+  htmlEditorDialog.value = true
+}
+
 onMounted(async () => {
   await loadUserSettings()
   toggleTheme(user.value.theme)
@@ -237,6 +244,9 @@ onMounted(async () => {
         @click="sendAllSelectedMail"
       >
         Отправить выбранные
+      </el-button>
+      <el-button @click="openHTMLEditorDialog">
+        Редактор шаблона
       </el-button>
     </div>
     <el-switch
@@ -439,6 +449,13 @@ onMounted(async () => {
         v-model="user.mailBody"
       />
     </div>
+    <div>
+      <label for="html">HTML</label>
+      <el-input
+        id="html"
+        v-model="user.htmlTemplate"
+      />
+    </div>
     <template #footer>
       <el-button type="danger" @click="settingsDialog = false">
         Закрыть
@@ -447,6 +464,14 @@ onMounted(async () => {
         Сохранить
       </el-button>
     </template>
+  </el-dialog>
+
+  <el-dialog
+    title="Редактор шаблона"
+    fullscreen
+    v-model="htmlEditorDialog"
+  >
+    <HTMLEditor :html="user.htmlTemplate" />
   </el-dialog>
 </template>
 

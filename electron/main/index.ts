@@ -70,7 +70,6 @@ async function createWindow() {
       // contextIsolation: true,
     },
   })
-  win.setMenu(null)
   mainWindowStateKeeper.track(win)
 
   if (VITE_DEV_SERVER_URL) { // #298
@@ -78,6 +77,7 @@ async function createWindow() {
     // Open devTool if the app is not packaged
     win.webContents.openDevTools()
   } else {
+    win.setMenu(null)
     win.loadFile(indexHtml)
   }
 
