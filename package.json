@@ -33,7 +33,7 @@
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
-    "eslint": "^8.55.0",
+    "eslint": "^9.15.0",
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-vue": "^9.20.1",
     "postcss": "^8.4.49",
