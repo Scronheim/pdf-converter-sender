@@ -1,7 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import path from 'node:path'
+import path, { resolve } from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import Store from 'electron-store'
@@ -156,6 +156,9 @@ ipcMain.handle('getUserSettings', () => {
     smtpHost: '',
     smtpLogin: '',
     smtpPassword: '',
+    theme: 'light',
+    mailSubject: '',
+    mailBody: '',
   }
 })
 
@@ -165,12 +168,14 @@ ipcMain.handle('getPdfFileList', async (): Promise<FileListItem[]> => {
     settings = JSON.parse(settings)
     return new Promise((resolve) => {
       fs.readdir(settings.selectedPdfFolderPath, (_, files) => {
-        resolve(files.filter(file => file.endsWith('.pdf')).map((filename) => {
-          return {
-            name: filename,
-            email: filename.replace('.pdf', '')
-          }
-        }))
+        if (files) {
+          resolve(files.filter(file => file.endsWith('.pdf')).map((filename) => {
+            return {
+              name: filename,
+              email: filename.replace('.pdf', '').split('_')[0]
+            }
+          }))
+        }
       })
     })
   }
@@ -182,11 +187,15 @@ ipcMain.handle('downloadFile', async (_, arrayBuffer, filename) => {
 })
 
 function saveArrayBufferToFile(arrayBuffer: ArrayBuffer, filename: string, encoding = 'utf8') {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const buffer = Buffer.from(arrayBuffer)
     const { selectedPdfFolderPath } = JSON.parse(store.get('userSettings'))
 
-    const fullPath = path.join(selectedPdfFolderPath, filename)
+    let fullPath = path.join(selectedPdfFolderPath, filename)
+    if (await checkFileExist(fullPath)) {
+      const tempFilename = `${filename.split('.pdf')[0]}_${(Math.random()*10000).toFixed(0)}.pdf`
+      fullPath = path.join(selectedPdfFolderPath, tempFilename)
+    }
     fs.writeFile(fullPath, buffer, { encoding }, (err) => {
       if (err) {
         reject(err)
@@ -195,6 +204,17 @@ function saveArrayBufferToFile(arrayBuffer: ArrayBuffer, filename: string, encod
       }
     })
   })
+}
+
+async function checkFileExist(fullPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    fs.promises.access(fullPath).then(() => {
+      return resolve(true)
+    }).catch(() => {
+      return resolve(false)
+    })
+  })
+  
 }
 
 ipcMain.handle('createMailTransport', () => {
@@ -210,25 +230,29 @@ ipcMain.handle('createMailTransport', () => {
   })
 })
 
-ipcMain.handle('sendMail', (_, to, subject, filePath) => {
-  const { smtpLogin } = JSON.parse(store.get('userSettings'))
-  mailTransporter.sendMail({
-    from: smtpLogin,
-    to,
-    subject,
-    attachments: [
-      { filename: `${to}.pdf`, path: filePath }
-    ]
+ipcMain.handle('sendMail', async (_, to, subject, text, filePath) => {
+  return new Promise(async (resolve) => {
+    const { smtpLogin } = JSON.parse(store.get('userSettings'))
+    await mailTransporter.sendMail({
+      from: smtpLogin,
+      to,
+      subject,
+      text,
+      attachments: [
+        { filename: `${to}.pdf`, path: filePath }
+      ]
+    })
+    removeFile(filePath)
+    resolve(true)
   })
-  // fs.unlink(filePath, (err) => {
-  //   if (err) console.log(1, err)
-    
-  // })
 })
 
 ipcMain.handle('removeFile', (_, filePath) => {
+  removeFile(filePath)
+})
+
+function removeFile(filePath: string) {
   fs.unlink(filePath, (err) => {
     if (err) console.log(err)
-    
   })
-})
+}

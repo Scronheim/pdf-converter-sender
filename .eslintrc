@@ -167,6 +167,7 @@
     //    ],
     "no-console": "warn",
     "no-debugger": "warn",
+    "no-async-promise-executor": "off",
     "vue/order-in-components": [
       "error",
       {

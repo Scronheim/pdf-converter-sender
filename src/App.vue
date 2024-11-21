@@ -1,16 +1,31 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import html2pdf from 'html2pdf.js'
 import * as XLSX from 'xlsx'
 import { ElNotification } from 'element-plus'
-import { Setting, Folder, Message, Delete } from '@element-plus/icons-vue'
+import { useColorMode } from '@vueuse/core'
+import { Setting, Folder, Message, Delete, QuestionFilled } from '@element-plus/icons-vue'
 
 import type { TableInstance } from 'element-plus'
 import type { FileListItem } from '../types'
 
+const theme = useColorMode({
+  emitAuto: false,
+  modes: {
+    light: 'light',
+    dark: 'dark',
+  }
+})
+const toggleTheme = (themeName: string): void => {
+  theme.value = themeName
+  user.value.theme = themeName
+  saveUserSettings()
+}
 
-const data = ref<FileListItem[]>([])  //Реактивная переменная для хранения данных из Excel
-const fileList = ref<string[]>([])
+
+const data = ref<(string | number)[]>([])  //Реактивная переменная для хранения данных из Excel
+const fileList = ref<FileListItem[]>([])
+const generatingIsProgress = ref<boolean>(false)
 
 const streetLocal = ref('')
 const apartmentLocal = ref('')
@@ -28,6 +43,9 @@ const user = ref({
   smtpHost: '',
   smtpLogin: '',
   smtpPassword: '',
+  theme: 'light',
+  mailSubject: '',
+  mailBody: '',
 })
 
 const mailServers = [
@@ -38,6 +56,7 @@ const settingsDialog = ref<boolean>(false)
 const pdfTable = ref<TableInstance>()
 
 const handleFile = (event): void => {
+  generatingIsProgress.value = true
   const file = event.target.files[0]
   
   if (file) {
@@ -50,6 +69,7 @@ const handleFile = (event): void => {
       const worksheet = workbook.Sheets[firstSheetName]  //Получаем первый лист
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })  //Конвертируем лист в JSON формат
       data.value = jsonData.slice(1)  //Сохраняем данные, начиная со второй строки (A2)
+      
       await generatePdf()
     }
     reader.readAsArrayBuffer(file)  //Читаем файл как массив байтов
@@ -94,13 +114,14 @@ const generatePdf = async (): Promise<void> => {
       pdfTable.value?.toggleAllSelection()
     }
     reader.readAsArrayBuffer(blob)
+    
 
     if (index === data.value.length - 1) {
       ElNotification({
         type: 'success',
         message: 'Файлы PDF сгенерированы'
       })
-      fileList.value = []
+      generatingIsProgress.value = false
     }
   }
 }
@@ -115,13 +136,15 @@ const loadUserSettings = async (): Promise<void> => {
   user.value = await window.ipcRenderer.invoke('getUserSettings')
 }
 
-const saveUserSettings = async (): Promise<void> => {
+const saveUserSettings = async (showNotification: boolean = false): Promise<void> => {
   await window.ipcRenderer.invoke('saveUserSettings', JSON.stringify(user.value))
   await window.ipcRenderer.invoke('createMailTransport')
-  ElNotification({
-    type: 'success',
-    message: 'Настройки сохранены'
-  })
+  if (showNotification) {
+    ElNotification({
+      type: 'success',
+      message: 'Настройки сохранены'
+    })
+  }
   settingsDialog.value = false
 }
 
@@ -130,19 +153,20 @@ const getFileList = async () => {
 }
 
 const sendMail = async (row) => {
-  await window.ipcRenderer.invoke('sendMail', row.email, 'Привет', `${user.value.selectedPdfFolderPath}/${row.name}`)
+  await window.ipcRenderer.invoke('sendMail', row.email, user.value.mailSubject, user.value.mailBody, `${user.value.selectedPdfFolderPath}/${row.name}`)
 }
 
 const sendAllSelectedMail = async () => {
   const rows = pdfTable.value?.getSelectionRows()
   if (rows.length) {
-    rows.forEach(row => {
-      sendMail(row)
+    rows.forEach(async row => {
+      await sendMail(row)
     })
     ElNotification({
       type: 'success',
       message: 'Все выбранные письма отправлены'
     })
+    await getFileList()
   } else {
     ElNotification({
       type: 'error',
@@ -156,13 +180,38 @@ const removeFile = async (row) => {
   await getFileList()
 }
 
+const removeAllFiles = async () => {
+  fileList.value.map(file => window.ipcRenderer.invoke('removeFile', `${user.value.selectedPdfFolderPath}/${file.name}`))
+  ElNotification({
+    type: 'success',
+    message: 'Все файлы удалены'
+  })
+  await getFileList()
+}
+
 const openExcelFileDialog = () => {
   const input = document.getElementById('excelFile')
   input?.click()
 }
 
+const openExternalPasswordPage = () => {
+  let externalUrl = ''
+  switch (user.value.smtpHost) {
+  case 'smtp.mail.ru':
+    externalUrl = 'https://help.mail.ru/mail/security/protection/external/'
+    break
+  case 'smtp.yandex.ru':
+    externalUrl = 'https://yandex.ru/support/id/ru/authorization/app-passwords'
+    break
+  default:
+    break
+  }
+  window.open(externalUrl, '_blank')
+}
+
 onMounted(async () => {
   await loadUserSettings()
+  toggleTheme(user.value.theme)
   if (user.value.smtpHost) await window.ipcRenderer.invoke('createMailTransport')
   await getFileList()
 })
@@ -190,16 +239,36 @@ onMounted(async () => {
         Отправить выбранные
       </el-button>
     </div>
-    <el-button :icon="Setting" @click="settingsDialog = true" />
+    <el-switch
+      inactive-text="Светлая"
+      inactive-value="light"
+      active-text="Тёмная"
+      active-value="dark"
+      v-model="user.theme"
+      @change="toggleTheme"
+    />
+    <el-button
+      type="info"
+      :icon="Setting"
+      @click="settingsDialog = true"
+    />
   </div>
   <el-table
     ref="pdfTable"
     :data="fileList"
     empty-text="PDF файлов не найдено"
+    v-loading="generatingIsProgress"
   >
-    <el-table-column type="selection" width="55" />
     <el-table-column
       fixed
+      type="selection"
+      width="55"
+    />
+    <el-table-column
+      prop="email"
+      label="Email адресата"
+    />
+    <el-table-column
       prop="name"
       label="Имя файла"
     />
@@ -207,6 +276,19 @@ onMounted(async () => {
       prop="actions"
       label="Действия"
     >
+      <template #header>
+        Действия
+        
+        <el-popconfirm title="Вы уверены, что хотите удалить все файлы?" @confirm="removeAllFiles">
+          <template #reference>
+            <el-button
+              class="ml-16"
+              type="danger"
+              :icon="Delete"
+            />
+          </template>
+        </el-popconfirm>
+      </template>
       <template #default="{row}">
         <el-button :icon="Message" @click="sendMail(row)">
           Отправить
@@ -320,7 +402,7 @@ onMounted(async () => {
       </el-select>
     </div>
     <div>
-      <label for="smtpLogin">Логин от почты</label>
+      <label for="smtpLogin">Логин от почты (email)</label>
       <el-input
         id="smtpLogin"
         v-model="user.smtpLogin"
@@ -331,13 +413,37 @@ onMounted(async () => {
       <el-input
         id="smtpPassword"
         v-model="user.smtpPassword"
+      >
+        <template #append>
+          <el-tooltip content="Открыть подсказку">
+            <el-button
+              size="small"
+              :icon="QuestionFilled"
+              @click="openExternalPasswordPage"
+            />
+          </el-tooltip>
+        </template>
+      </el-input>
+    </div>
+    <div>
+      <label for="mailSubject">Тема письма</label>
+      <el-input
+        id="mailSubject"
+        v-model="user.mailSubject"
+      />
+    </div>
+    <div>
+      <label for="mailBody">Тело письма</label>
+      <el-input
+        id="mailBody"
+        v-model="user.mailBody"
       />
     </div>
     <template #footer>
       <el-button type="danger" @click="settingsDialog = false">
         Закрыть
       </el-button>
-      <el-button type="success" @click="saveUserSettings">
+      <el-button type="success" @click="saveUserSettings(true)">
         Сохранить
       </el-button>
     </template>
